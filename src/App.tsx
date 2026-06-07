@@ -75,17 +75,19 @@ function getPlaceholder(modeId: string): string {
 }
 
 function getInitials(name: string): string {
+  if (!name) return '??';
   return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
 }
 
 const AVATAR_COLORS = ['#e53935','#8e24aa','#1e88e5','#00897b','#f4511e','#3949ab','#00acc1'];
 function avatarColor(name: string): string {
+  if (!name) return AVATAR_COLORS[0];
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
-const VOTES_FILE = 'board/votes.json';
+const VOTES_FILE = 'votes.json';
 
 function getCardFS(sdk: CardSdk) {
   return {
@@ -249,8 +251,10 @@ function App() {
     setBoardLoading(true);
     try {
       const fs = getCardFS(sdk);
-      const result = await fs.list('board/', true);
-      const files: string[] = (result?.files ?? []).filter((f: string) => !f.endsWith('votes.json'));
+      const result = await fs.list('', true);
+      const files: string[] = (result?.files ?? []).filter((f: string) => 
+        f.startsWith('post-') && f.endsWith('.json')
+      );
       const posts: BoardPost[] = [];
       for (const f of files) {
         try { posts.push(JSON.parse(await fs.readFile(f, true))); } catch { }
@@ -300,7 +304,7 @@ function App() {
     setPostingIndex(index);
     try {
       const fs = getCardFS(sdk);
-      const id = `board/post-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.json`;
+      const id = `post-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.json`;
       const post: BoardPost = {
         id, title: idea.title, description: idea.description,
         topic, mode: selectedMode.id,
