@@ -210,33 +210,50 @@ function App() {
   const loadHistory = async () => {
     if (!sdk) return;
     setHistoryLoading(true);
+    console.log('[History] Starting load...');
     try {
       const fs = getCardFS(sdk);
-      // Force fresh list with no cache
+      console.log('[History] Calling fs.list...');
       const result = await fs.list('history/');
+      console.log('[History] list result:', JSON.stringify(result));
       const files: string[] = result?.files ?? [];
+      console.log('[History] files found:', files.length, files);
+
       if (files.length === 0) {
+        console.log('[History] No files found, setting empty');
         setHistory([]);
         return;
       }
+
       const sessions: HistorySession[] = [];
       for (const f of files) {
+        console.log('[History] Reading file:', f);
         try {
           const raw = await fs.readFile(f);
-          if (!raw) continue;
+          console.log('[History] Raw content for', f, ':', raw?.slice(0, 100));
+          if (!raw) { console.log('[History] Empty content, skipping'); continue; }
           const data = JSON.parse(raw);
+          console.log('[History] Parsed data:', data?.topic, data?.savedAt);
           if (data?.savedAt && data?.topic) {
             sessions.push({ ...data, filename: f });
+          } else {
+            console.log('[History] Invalid data shape, skipping');
           }
-        } catch { }
+        } catch (e) {
+          console.log('[History] Error reading file', f, e);
+        }
       }
+
+      console.log('[History] Total valid sessions:', sessions.length);
       sessions.sort((a, b) => b.savedAt - a.savedAt);
       setHistory(sessions);
+      console.log('[History] State updated with', sessions.length, 'sessions');
     } catch (err) {
-      console.error('Failed to load history', err);
+      console.error('[History] Top-level error:', err);
       setHistory([]);
     } finally {
       setHistoryLoading(false);
+      console.log('[History] Load complete');
     }
   };
 
@@ -253,9 +270,11 @@ function App() {
 
     // Retry write up to 3 times
     const fs = getCardFS(sdk);
+    console.log('[History] Saving file:', filename, 'topic:', topic);
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         await fs.writeFile(filename, JSON.stringify(sessionData));
+        console.log('[History] File saved successfully:', filename);
         return;
       } catch (err) {
         console.warn(`History save attempt ${attempt} failed`, err);
