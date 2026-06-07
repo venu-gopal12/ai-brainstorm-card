@@ -112,22 +112,17 @@ function getCardFS(sdk: CardSdk) {
       return new Promise<string>((resolve, reject) => {
         sdk.cardFS.read(name, {
           next: (res) => {
-            console.log('[CardFS] read response keys:', Object.keys(res));
-            console.log('[CardFS] full response:', JSON.stringify(res).slice(0, 300));
-            if (typeof res.data === 'string') {
+            // Wait for complete data, not intermediate metadata
+            if (!res.is_complete) return;
+            if (typeof res.data === 'string' && res.data.startsWith('{')) {
               resolve(res.data);
-            } else if (res.data && typeof res.data === 'object') {
+            } else if (res.data && typeof res.data === 'object' && (res.data as any).filename) {
               resolve(JSON.stringify(res.data));
-            } else if (res.object) {
+            } else if (res.object && (res.object as any).filename) {
               resolve(JSON.stringify(res.object));
-            } else if (res.content) {
-              resolve(typeof res.content === 'string' ? res.content : JSON.stringify(res.content));
-            } else if (res.text) {
-              resolve(res.text);
             } else {
-              // log full response so we can see what field has the data
-              console.log('[CardFS] Unknown response shape:', JSON.stringify(res));
-              resolve(JSON.stringify(res));
+              // Not our data yet, keep waiting — but if data field is a doc wrapper, reject
+              reject(new Error('No valid content in response'));
             }
           },
           error: (err) => reject(err),
