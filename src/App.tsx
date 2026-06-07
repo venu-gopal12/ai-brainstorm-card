@@ -95,10 +95,21 @@ function getCardFS(sdk: CardSdk) {
       return new Promise<any>((resolve, reject) => {
         sdk.cardFS.list(folder, {
           next: (res) => {
-            const files = (res.documents || []).map((d: any) => d.name || '');
-            resolve({ files: files.filter(Boolean) });
+            console.log('[CardFS] list raw res:', JSON.stringify(res).slice(0, 200));
+            const docs = res.documents || res.files || [];
+            const files = docs.map((d: any) => {
+              const name = d.name || d;
+              // Prepend folder prefix if not already included
+              if (folder && folder !== '' && !name.startsWith(folder)) {
+                return folder + name;
+              }
+              return name;
+            }).filter(Boolean);
+            console.log('[CardFS] list resolved files:', files);
+            resolve({ files });
           },
           error: (err: any) => {
+            console.log('[CardFS] list error:', err);
             if (err?.code === 'NOT_FOUND' || (err?.message || '').includes('404')) {
               resolve({ files: [] });
             } else {
@@ -110,26 +121,44 @@ function getCardFS(sdk: CardSdk) {
     },
     readFile: (name: string, _shared?: boolean) => {
       return new Promise<string>((resolve, reject) => {
+        let resolved = false;
         sdk.cardFS.read(name, {
           next: (res) => {
-            // Wait for complete data, not intermediate metadata
-            if (!res.is_complete) return;
-            if (typeof res.data === 'string' && res.data.startsWith('{')) {
-              resolve(res.data);
-            } else if (res.data && typeof res.data === 'object' && (res.data as any).filename) {
-              resolve(JSON.stringify(res.data));
-            } else if (res.object && (res.object as any).filename) {
-              resolve(JSON.stringify(res.object));
-            } else {
-              // Not our data yet, keep waiting — but if data field is a doc wrapper, reject
-              reject(new Error('No valid content in response'));
+            console.log('[CardFS] read next for', name, '| is_complete:', res.is_complete, '| data type:', typeof res.data, '| data slice:', JSON.stringify(res.data)?.slice(0, 80));
+            if (resolved) return;
+            // Accept data on is_complete OR if we get actual content string
+            const dataStr = typeof res.data === 'string' ? res.data : null;
+            const hasRealContent = dataStr && (dataStr.startsWith('{"filename') || dataStr.startsWith('{"id') || dataStr.startsWith('{"title') || dataStr.startsWith('{"topic') || dataStr.startsWith('[{'));
+            if (hasRealContent) {
+              resolved = true;
+              resolve(dataStr!);
+              return;
+            }
+            if (res.is_complete) {
+              resolved = true;
+              if (dataStr) {
+                resolve(dataStr);
+              } else if (res.data && typeof res.data === 'object') {
+                const obj = res.data as any;
+                if (obj.filename || obj.id || obj.title || obj.topic) {
+                  resolve(JSON.stringify(obj));
+                } else {
+                  reject(new Error('Metadata wrapper returned, no content'));
+                }
+              } else {
+                reject(new Error('No content in complete response'));
+              }
             }
           },
-          error: (err) => reject(err),
+          error: (err) => {
+            console.log('[CardFS] read error for', name, ':', JSON.stringify(err));
+            reject(err);
+          },
         });
       });
     },
     writeFile: (name: string, content: string, _shared?: boolean) => {
+      console.log('[CardFS] writing:', name, 'length:', content.length);
       return sdk.cardFS.write(name, content, CardFsFileType.TEXT);
     },
     deleteFile: (name: string, _shared?: boolean) => {
