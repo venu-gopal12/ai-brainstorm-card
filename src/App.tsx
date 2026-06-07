@@ -191,6 +191,7 @@ function App() {
   const [votes, setVotes]               = useState<VoteData>({});
   const [votingId, setVotingId]         = useState<string | null>(null);
   const [sortBy, setSortBy]             = useState<'recent' | 'votes'>('votes');
+  const [justPosted, setJustPosted]     = useState(false);
 
   // ── SDK init ──────────────────────────────────────────────────────────────
 
@@ -222,7 +223,10 @@ function App() {
       setTimeout(() => loadHistory(), 400);
     }
     if (tab === 'board' && sdk) {
-      setBoard(prev => prev); // keep existing while refreshing
+      if (justPosted) {
+        setJustPosted(false);
+        return; // skip reload — we already have the post optimistically
+      }
       setBoardLoading(false);
       setTimeout(() => loadBoard(), 800);
     }
@@ -384,8 +388,8 @@ function App() {
       };
       await fs.writeFile(id, JSON.stringify(post), true);
       setPostedIndexes(p => new Set(p).add(index));
-      // Optimistically add to board state immediately
       setBoard(prev => [post, ...prev]);
+      setJustPosted(true); // tell the tab switch to skip reload
     } catch (err) { console.error('Failed to post', err); }
     finally { setPostingIndex(null); }
   };
