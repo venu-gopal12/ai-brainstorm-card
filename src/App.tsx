@@ -233,50 +233,39 @@ function App() {
   const loadHistory = async () => {
     if (!sdk) return;
     setHistoryLoading(true);
-    console.log('[History] Starting load...');
     try {
       const fs = getCardFS(sdk);
-      console.log('[History] Calling fs.list...');
       const result = await fs.list('history/');
-      console.log('[History] list result:', JSON.stringify(result));
       const files: string[] = result?.files ?? [];
-      console.log('[History] files found:', files.length, files);
+      if (files.length === 0) { setHistory([]); return; }
 
-      if (files.length === 0) {
-        console.log('[History] No files found, setting empty');
-        setHistory([]);
-        return;
-      }
+      // Only load the 10 most recent (already sorted newest-first by CardFS)
+      const recentFiles = files.slice(0, 10);
+
+      // Read all in parallel
+      const results = await Promise.allSettled(
+        recentFiles.map(f => fs.readFile(f))
+      );
 
       const sessions: HistorySession[] = [];
-      for (const f of files) {
-        console.log('[History] Reading file:', f);
-        try {
-          const raw = await fs.readFile(f);
-          console.log('[History] Raw content for', f, ':', raw?.slice(0, 100));
-          if (!raw) { console.log('[History] Empty content, skipping'); continue; }
-          const data = JSON.parse(raw);
-          console.log('[History] Parsed data:', data?.topic, data?.savedAt);
-          if (data?.savedAt && data?.topic) {
-            sessions.push({ ...data, filename: f });
-          } else {
-            console.log('[History] Invalid data shape, skipping');
-          }
-        } catch (e) {
-          console.log('[History] Error reading file', f, e);
+      results.forEach((result, i) => {
+        if (result.status === 'fulfilled') {
+          try {
+            const data = JSON.parse(result.value);
+            if (data?.savedAt && data?.topic) {
+              sessions.push({ ...data, filename: recentFiles[i] });
+            }
+          } catch { }
         }
-      }
+      });
 
-      console.log('[History] Total valid sessions:', sessions.length);
       sessions.sort((a, b) => b.savedAt - a.savedAt);
       setHistory(sessions);
-      console.log('[History] State updated with', sessions.length, 'sessions');
     } catch (err) {
-      console.error('[History] Top-level error:', err);
+      console.error('[History] load error:', err);
       setHistory([]);
     } finally {
       setHistoryLoading(false);
-      console.log('[History] Load complete');
     }
   };
 
@@ -321,18 +310,30 @@ function App() {
     try {
       const fs = getCardFS(sdk);
       const result = await fs.list('', true);
-      const files: string[] = (result?.files ?? []).filter((f: string) => 
+      const files: string[] = (result?.files ?? []).filter((f: string) =>
         f.startsWith('post-') && f.endsWith('.json')
       );
+
+      // Read all in parallel
+      const results = await Promise.allSettled(
+        files.map(f => fs.readFile(f, true))
+      );
+
       const posts: BoardPost[] = [];
-      for (const f of files) {
-        try { posts.push(JSON.parse(await fs.readFile(f, true))); } catch { }
-      }
+      results.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          try { posts.push(JSON.parse(result.value)); } catch { }
+        }
+      });
+
       posts.sort((a, b) => b.postedAt - a.postedAt);
       setBoard(posts);
       await loadVotes();
-    } catch (err) { console.error('Failed to load board', err); }
-    finally { setBoardLoading(false); }
+    } catch (err) {
+      console.error('Failed to load board', err);
+    } finally {
+      setBoardLoading(false);
+    }
   };
 
   const loadVotes = async () => {
