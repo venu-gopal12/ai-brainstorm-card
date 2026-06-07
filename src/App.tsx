@@ -89,7 +89,7 @@ const VOTES_FILE = 'board/votes.json';
 
 function getCardFS(sdk: CardSdk) {
   return {
-    list: (folder: string, shared?: boolean) => {
+    list: (folder: string, _shared?: boolean) => {
       return new Promise<any>((resolve, reject) => {
         sdk.cardFS.list(folder, {
           next: (res) => {
@@ -106,7 +106,7 @@ function getCardFS(sdk: CardSdk) {
         });
       });
     },
-    readFile: (name: string, shared?: boolean) => {
+    readFile: (name: string, _shared?: boolean) => {
       return new Promise<string>((resolve, reject) => {
         sdk.cardFS.read(name, {
           next: (res) => {
@@ -122,10 +122,10 @@ function getCardFS(sdk: CardSdk) {
         });
       });
     },
-    writeFile: (name: string, content: string, shared?: boolean) => {
+    writeFile: (name: string, content: string, _shared?: boolean) => {
       return sdk.cardFS.write(name, content, CardFsFileType.TEXT);
     },
-    deleteFile: (name: string, shared?: boolean) => {
+    deleteFile: (name: string, _shared?: boolean) => {
       return sdk.cardFS.delete(name);
     }
   };
