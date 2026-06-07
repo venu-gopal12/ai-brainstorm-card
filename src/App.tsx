@@ -202,6 +202,7 @@ function App() {
   const loadHistory = async () => {
     if (!sdk) return;
     setHistoryLoading(true);
+    await new Promise(r => setTimeout(r, 300)); // let CardFS settle
     try {
       const fs = getCardFS(sdk);
       const result = await fs.list('history/');
@@ -223,19 +224,27 @@ function App() {
 
   const saveToHistory = async (topic: string, mode: Mode, ideas: BrainstormIdea[]) => {
     if (!sdk) return;
-    try {
-      const fs = getCardFS(sdk);
-      const ts = Date.now();
-      const filename = `history/session-${ts}.json`;
-      const sessionData = { filename, topic, mode: mode.id, ideas, savedAt: ts };
-      await fs.writeFile(filename, JSON.stringify(sessionData));
-      
-      // Instantly add it to the local state so it appears without a reload
-      setHistory(prev => [sessionData, ...prev].sort((a, b) => b.savedAt - a.savedAt));
-      
-      setSavedMsg('Saved to history ✓');
-      setTimeout(() => setSavedMsg(''), 2500);
-    } catch (err) { console.error('Failed to save', err); }
+    const ts = Date.now();
+    const filename = `history/session-${ts}.json`;
+    const sessionData = { filename, topic, mode: mode.id, ideas, savedAt: ts };
+
+    // Optimistically update UI immediately
+    setHistory(prev => [sessionData, ...prev].sort((a, b) => b.savedAt - a.savedAt));
+    setSavedMsg('Saved to history ✓');
+    setTimeout(() => setSavedMsg(''), 2500);
+
+    // Retry write up to 3 times
+    const fs = getCardFS(sdk);
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await fs.writeFile(filename, JSON.stringify(sessionData));
+        return;
+      } catch (err) {
+        console.warn(`History save attempt ${attempt} failed`, err);
+        if (attempt < 3) await new Promise(r => setTimeout(r, 500 * attempt));
+      }
+    }
+    console.error('History save failed after 3 attempts');
   };
 
   const deleteSession = async (filename: string) => {
