@@ -222,9 +222,9 @@ function App() {
       setTimeout(() => loadHistory(), 400);
     }
     if (tab === 'board' && sdk) {
-      setBoard([]);
-      setBoardLoading(true);
-      setTimeout(() => loadBoard(), 400);
+      setBoard(prev => prev); // keep existing while refreshing
+      setBoardLoading(false);
+      setTimeout(() => loadBoard(), 800);
     }
   }, [tab, sdk]);
 
@@ -384,6 +384,8 @@ function App() {
       };
       await fs.writeFile(id, JSON.stringify(post), true);
       setPostedIndexes(p => new Set(p).add(index));
+      // Optimistically add to board state immediately
+      setBoard(prev => [post, ...prev]);
     } catch (err) { console.error('Failed to post', err); }
     finally { setPostingIndex(null); }
   };
