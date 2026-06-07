@@ -193,8 +193,16 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (tab === 'history' && sdk) loadHistory();
-    if (tab === 'board' && sdk) loadBoard();
+    if (tab === 'history' && sdk) {
+      setHistory([]);
+      setHistoryLoading(true);
+      setTimeout(() => loadHistory(), 400);
+    }
+    if (tab === 'board' && sdk) {
+      setBoard([]);
+      setBoardLoading(true);
+      setTimeout(() => loadBoard(), 400);
+    }
   }, [tab, sdk]);
 
   // ── History (private) ─────────────────────────────────────────────────────
@@ -202,24 +210,34 @@ function App() {
   const loadHistory = async () => {
     if (!sdk) return;
     setHistoryLoading(true);
-    await new Promise(r => setTimeout(r, 300)); // let CardFS settle
     try {
       const fs = getCardFS(sdk);
+      // Force fresh list with no cache
       const result = await fs.list('history/');
       const files: string[] = result?.files ?? [];
+      if (files.length === 0) {
+        setHistory([]);
+        return;
+      }
       const sessions: HistorySession[] = [];
       for (const f of files) {
         try {
-          const data = JSON.parse(await fs.readFile(f));
-          if (data && data.savedAt && data.topic) {
+          const raw = await fs.readFile(f);
+          if (!raw) continue;
+          const data = JSON.parse(raw);
+          if (data?.savedAt && data?.topic) {
             sessions.push({ ...data, filename: f });
           }
         } catch { }
       }
       sessions.sort((a, b) => b.savedAt - a.savedAt);
       setHistory(sessions);
-    } catch (err) { console.error('Failed to load history', err); }
-    finally { setHistoryLoading(false); }
+    } catch (err) {
+      console.error('Failed to load history', err);
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
   };
 
   const saveToHistory = async (topic: string, mode: Mode, ideas: BrainstormIdea[]) => {
