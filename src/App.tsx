@@ -124,35 +124,24 @@ function getCardFS(sdk: CardSdk) {
         let resolved = false;
         sdk.cardFS.read(name, {
           next: (res) => {
-            console.log('[CardFS] read next for', name, '| is_complete:', res.is_complete, '| data type:', typeof res.data, '| data slice:', JSON.stringify(res.data)?.slice(0, 80));
             if (resolved) return;
-            // Accept data on is_complete OR if we get actual content string
-            const dataStr = typeof res.data === 'string' ? res.data : null;
-            const hasRealContent = dataStr && (dataStr.startsWith('{"filename') || dataStr.startsWith('{"id') || dataStr.startsWith('{"title') || dataStr.startsWith('{"topic') || dataStr.startsWith('[{'));
-            if (hasRealContent) {
+            // Data arrives as object on first call, undefined on is_complete call
+            if (res.data && typeof res.data === 'object') {
               resolved = true;
-              resolve(dataStr!);
+              resolve(JSON.stringify(res.data));
               return;
             }
-            if (res.is_complete) {
+            if (typeof res.data === 'string' && res.data.length > 0) {
               resolved = true;
-              if (dataStr) {
-                resolve(dataStr);
-              } else if (res.data && typeof res.data === 'object') {
-                const obj = res.data as any;
-                if (obj.filename || obj.id || obj.title || obj.topic) {
-                  resolve(JSON.stringify(obj));
-                } else {
-                  reject(new Error('Metadata wrapper returned, no content'));
-                }
-              } else {
-                reject(new Error('No content in complete response'));
-              }
+              resolve(res.data);
+              return;
+            }
+            if (res.is_complete && !resolved) {
+              reject(new Error('No content received'));
             }
           },
           error: (err) => {
-            console.log('[CardFS] read error for', name, ':', JSON.stringify(err));
-            reject(err);
+            if (!resolved) reject(err);
           },
         });
       });
