@@ -112,12 +112,22 @@ function getCardFS(sdk: CardSdk) {
       return new Promise<string>((resolve, reject) => {
         sdk.cardFS.read(name, {
           next: (res) => {
-            if (res.data) {
-               resolve(typeof res.data === 'string' ? res.data : JSON.stringify(res.data));
+            console.log('[CardFS] read response keys:', Object.keys(res));
+            console.log('[CardFS] full response:', JSON.stringify(res).slice(0, 300));
+            if (typeof res.data === 'string') {
+              resolve(res.data);
+            } else if (res.data && typeof res.data === 'object') {
+              resolve(JSON.stringify(res.data));
             } else if (res.object) {
-               resolve(JSON.stringify(res.object));
+              resolve(JSON.stringify(res.object));
+            } else if (res.content) {
+              resolve(typeof res.content === 'string' ? res.content : JSON.stringify(res.content));
+            } else if (res.text) {
+              resolve(res.text);
             } else {
-               resolve('');
+              // log full response so we can see what field has the data
+              console.log('[CardFS] Unknown response shape:', JSON.stringify(res));
+              resolve(JSON.stringify(res));
             }
           },
           error: (err) => reject(err),
