@@ -11,3 +11,4 @@ jobs:
     secrets:
       WEBAPP_DEPLOY_TOKEN: ${{ secrets.WEBAPP_DEPLOY_TOKEN }}
       CARD_DEC_BLOB: ${{ secrets.CARD_DEC_BLOB }}
+      VITE_GROQ_API_KEY: ${{ secrets.VITE_GROQ_API_KEY }}
