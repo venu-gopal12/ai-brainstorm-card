@@ -11,6 +11,8 @@ import {
 } from 'dome-embedded-app-sdk';
 import './App.css'
 
+const WORKER_URL = 'https://groq-proxy.beereddyvenugopalreddy2.workers.dev';
+
 interface BrainstormIdea {
   title: string;
   description: string;
@@ -42,7 +44,7 @@ interface BoardPost {
 }
 
 interface VoteData {
-  [postId: string]: string[]; // postId -> array of userIds who voted
+  [postId: string]: string[];
 }
 
 type Tab = 'brainstorm' | 'history' | 'board';
@@ -89,27 +91,38 @@ function avatarColor(name: string): string {
 
 const VOTES_FILE = 'votes.json';
 
+async function callWorker(systemPrompt: string, prompt: string): Promise<string> {
+  const response = await fetch(WORKER_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, systemPrompt }),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    const errorMessage = errorData?.error?.message || response.statusText;
+    throw new Error(`API error ${response.status}: ${errorMessage}`);
+  }
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content ?? '';
+}
+
 function getCardFS(sdk: CardSdk) {
   return {
     list: (folder: string, _shared?: boolean) => {
       return new Promise<any>((resolve, reject) => {
         sdk.cardFS.list(folder, {
           next: (res) => {
-            console.log('[CardFS] list raw res:', JSON.stringify(res).slice(0, 200));
             const docs = res.documents || res.files || [];
             const files = docs.map((d: any) => {
               const name = d.name || d;
-              // Prepend folder prefix if not already included
               if (folder && folder !== '' && !name.startsWith(folder)) {
                 return folder + name;
               }
               return name;
             }).filter(Boolean);
-            console.log('[CardFS] list resolved files:', files);
             resolve({ files });
           },
           error: (err: any) => {
-            console.log('[CardFS] list error:', err);
             if (err?.code === 'NOT_FOUND' || (err?.message || '').includes('404')) {
               resolve({ files: [] });
             } else {
@@ -125,7 +138,6 @@ function getCardFS(sdk: CardSdk) {
         sdk.cardFS.read(name, {
           next: (res) => {
             if (resolved) return;
-            // Data arrives as object on first call, undefined on is_complete call
             if (res.data && typeof res.data === 'object') {
               resolved = true;
               resolve(JSON.stringify(res.data));
@@ -147,7 +159,6 @@ function getCardFS(sdk: CardSdk) {
       });
     },
     writeFile: (name: string, content: string, _shared?: boolean) => {
-      console.log('[CardFS] writing:', name, 'length:', content.length);
       return sdk.cardFS.write(name, content, CardFsFileType.TEXT);
     },
     deleteFile: (name: string, _shared?: boolean) => {
@@ -161,7 +172,6 @@ function App() {
   const [sdk, setSdk]             = useState<CardSdk | null>(null);
   const [initError, setInitError] = useState<CardInitErrorPayload | null>(null);
 
-  // Generate tab
   const [tab, setTab]                   = useState<Tab>('brainstorm');
   const [topic, setTopic]               = useState('');
   const [selectedMode, setSelectedMode] = useState<Mode>(MODES[0]);
@@ -175,16 +185,13 @@ function App() {
   const [postingIndex, setPostingIndex] = useState<number | null>(null);
   const [postedIndexes, setPostedIndexes] = useState<Set<number>>(new Set());
 
-  // Drill-down
   const [drillingIndex, setDrillingIndex]   = useState<number | null>(null);
   const [drillData, setDrillData]           = useState<Record<number, DrillDown>>({});
   const [expandedDrill, setExpandedDrill]   = useState<number | null>(null);
 
-  // History tab
   const [history, setHistory]           = useState<HistorySession[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // Board tab
   const [board, setBoard]               = useState<BoardPost[]>([]);
   const [boardLoading, setBoardLoading] = useState(false);
   const [deletingId, setDeletingId]     = useState<string | null>(null);
@@ -192,8 +199,6 @@ function App() {
   const [votingId, setVotingId]         = useState<string | null>(null);
   const [sortBy, setSortBy]             = useState<'recent' | 'votes'>('votes');
   const [justPosted, setJustPosted]     = useState(false);
-
-  // ── SDK init ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
     const decBlob = import.meta.env.VITE_CARD_DEC_BLOB;
@@ -225,14 +230,14 @@ function App() {
     if (tab === 'board' && sdk) {
       if (justPosted) {
         setJustPosted(false);
-        return; // skip reload — we already have the post optimistically
+        return;
       }
       setBoardLoading(false);
       setTimeout(() => loadBoard(), 800);
     }
   }, [tab, sdk]);
 
-  // ── History (private) ─────────────────────────────────────────────────────
+  // ── History ───────────────────────────────────────────────────────────────
 
   const loadHistory = async () => {
     if (!sdk) return;
@@ -242,27 +247,17 @@ function App() {
       const result = await fs.list('history/');
       const files: string[] = result?.files ?? [];
       if (files.length === 0) { setHistory([]); return; }
-
-      // Only load the 10 most recent (already sorted newest-first by CardFS)
       const recentFiles = files.slice(0, 10);
-
-      // Read all in parallel
-      const results = await Promise.allSettled(
-        recentFiles.map(f => fs.readFile(f))
-      );
-
+      const results = await Promise.allSettled(recentFiles.map(f => fs.readFile(f)));
       const sessions: HistorySession[] = [];
       results.forEach((result, i) => {
         if (result.status === 'fulfilled') {
           try {
             const data = JSON.parse(result.value);
-            if (data?.savedAt && data?.topic) {
-              sessions.push({ ...data, filename: recentFiles[i] });
-            }
+            if (data?.savedAt && data?.topic) sessions.push({ ...data, filename: recentFiles[i] });
           } catch { }
         }
       });
-
       sessions.sort((a, b) => b.savedAt - a.savedAt);
       setHistory(sessions);
     } catch (err) {
@@ -278,26 +273,16 @@ function App() {
     const ts = Date.now();
     const filename = `history/session-${ts}.json`;
     const sessionData = { filename, topic, mode: mode.id, ideas, savedAt: ts };
-
-    // Optimistically update UI immediately
     setHistory(prev => [sessionData, ...prev].sort((a, b) => b.savedAt - a.savedAt));
     setSavedMsg('Saved to history ✓');
     setTimeout(() => setSavedMsg(''), 2500);
-
-    // Retry write up to 3 times
     const fs = getCardFS(sdk);
-    console.log('[History] Saving file:', filename, 'topic:', topic);
     for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        await fs.writeFile(filename, JSON.stringify(sessionData));
-        console.log('[History] File saved successfully:', filename);
-        return;
-      } catch (err) {
-        console.warn(`History save attempt ${attempt} failed`, err);
+      try { await fs.writeFile(filename, JSON.stringify(sessionData)); return; }
+      catch (err) {
         if (attempt < 3) await new Promise(r => setTimeout(r, 500 * attempt));
       }
     }
-    console.error('History save failed after 3 attempts');
   };
 
   const deleteSession = async (filename: string) => {
@@ -306,7 +291,7 @@ function App() {
     catch (err) { console.error('Failed to delete', err); }
   };
 
-  // ── Board (shared) ────────────────────────────────────────────────────────
+  // ── Board ─────────────────────────────────────────────────────────────────
 
   const loadBoard = async () => {
     if (!sdk) return;
@@ -317,19 +302,13 @@ function App() {
       const files: string[] = (result?.files ?? []).filter((f: string) =>
         f.startsWith('post-') && f.endsWith('.json')
       );
-
-      // Read all in parallel
-      const results = await Promise.allSettled(
-        files.map(f => fs.readFile(f, true))
-      );
-
+      const results = await Promise.allSettled(files.map(f => fs.readFile(f, true)));
       const posts: BoardPost[] = [];
       results.forEach((result) => {
         if (result.status === 'fulfilled') {
           try { posts.push(JSON.parse(result.value)); } catch { }
         }
       });
-
       posts.sort((a, b) => b.postedAt - a.postedAt);
       setBoard(posts);
       await loadVotes();
@@ -343,12 +322,9 @@ function App() {
   const loadVotes = async () => {
     if (!sdk) return;
     try {
-      const fs = getCardFS(sdk);
-      const raw = await fs.readFile(VOTES_FILE, true);
+      const raw = await getCardFS(sdk).readFile(VOTES_FILE, true);
       setVotes(JSON.parse(raw));
-    } catch {
-      setVotes({});
-    }
+    } catch { setVotes({}); }
   };
 
   const saveVotes = async (updated: VoteData) => {
@@ -389,7 +365,7 @@ function App() {
       await fs.writeFile(id, JSON.stringify(post), true);
       setPostedIndexes(p => new Set(p).add(index));
       setBoard(prev => [post, ...prev]);
-      setJustPosted(true); // tell the tab switch to skip reload
+      setJustPosted(true);
     } catch (err) { console.error('Failed to post', err); }
     finally { setPostingIndex(null); }
   };
@@ -417,35 +393,14 @@ function App() {
       return;
     }
     setDrillingIndex(index);
-    const groqKey = import.meta.env.VITE_GROQ_API_KEY;
-    if (!groqKey) { setDrillingIndex(null); return; }
     try {
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
-        body: JSON.stringify({
-          model: 'llama-3.1-8b-instant',
-          messages: [
-            {
-              role: 'system',
-              content: `You are a practical planning assistant. Given an idea, provide a structured breakdown.
+      const content = await callWorker(
+        `You are a practical planning assistant. Given an idea, provide a structured breakdown.
 Respond ONLY with valid JSON, no markdown, no code fences.
 Format: {"steps":["step1","step2","step3"],"risks":["risk1","risk2"],"resources":["resource1","resource2"]}
 Keep each item to one short sentence. Exactly 3 steps, 2 risks, 2 resources.`,
-            },
-            { role: 'user', content: `Idea: "${idea.title}"\nDescription: ${idea.description}\nContext: ${selectedMode.label} mode, topic: ${topic}` },
-          ],
-          temperature: 0.7,
-          max_tokens: 500,
-        }),
-      });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        const errorMessage = errorData?.error?.message || response.statusText;
-        throw new Error(`API error ${response.status}: ${errorMessage}`);
-      }
-      const data = await response.json();
-      const content = data.choices?.[0]?.message?.content ?? '';
+        `Idea: "${idea.title}"\nDescription: ${idea.description}\nContext: ${selectedMode.label} mode, topic: ${topic}`
+      );
       let parsed: DrillDown;
       try { parsed = JSON.parse(content); }
       catch { const match = content.match(/\{[\s\S]*\}/); parsed = match ? JSON.parse(match[0]) : { steps: [], risks: [], resources: [] }; }
@@ -495,29 +450,13 @@ Keep each item to one short sentence. Exactly 3 steps, 2 risks, 2 resources.`,
     setCopiedIndex(null); setCopiedAll(false); setPostedIndexes(new Set());
     setDrillData({}); setExpandedDrill(null);
 
-    const groqKey = import.meta.env.VITE_GROQ_API_KEY;
-    if (!groqKey) { setError('Groq API key not configured.'); setLoading(false); return; }
-
     try {
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
-        body: JSON.stringify({
-          model: 'llama-3.1-8b-instant',
-          messages: [
-            { role: 'system', content: `You are a creative brainstorming assistant. ${selectedMode.prompt}\nRespond ONLY with a valid JSON array, no extra text, no markdown, no code fences.\nFormat: [{"title":"Idea Title","description":"One sentence description."},...]` },
-            { role: 'user', content: `Brainstorm ideas for: ${topic}` },
-          ],
-          temperature: 0.8, max_tokens: 800,
-        }),
-      });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        const errorMessage = errorData?.error?.message || response.statusText;
-        throw new Error(`API error ${response.status}: ${errorMessage}`);
-      }
-      const data = await response.json();
-      const content = data.choices?.[0]?.message?.content ?? '';
+      const content = await callWorker(
+        `You are a creative brainstorming assistant. ${selectedMode.prompt}
+Respond ONLY with a valid JSON array, no extra text, no markdown, no code fences.
+Format: [{"title":"Idea Title","description":"One sentence description."},...]`,
+        `Brainstorm ideas for: ${topic}`
+      );
       let parsed: BrainstormIdea[] = [];
       try { parsed = JSON.parse(content); }
       catch { const match = content.match(/\[[\s\S]*\]/); if (match) parsed = JSON.parse(match[0]); else throw new Error('Could not parse AI response'); }
@@ -572,7 +511,6 @@ Keep each item to one short sentence. Exactly 3 steps, 2 risks, 2 resources.`,
         </div>
       </div>
 
-      {/* ── GENERATE TAB ── */}
       {tab === 'brainstorm' && (
         <>
           <div className="mode-section">
@@ -625,7 +563,6 @@ Keep each item to one short sentence. Exactly 3 steps, 2 risks, 2 resources.`,
                     <div className="idea-content">
                       <h3 className="idea-title">{idea.title}</h3>
                       <p className="idea-desc">{idea.description}</p>
-
                       <div className="idea-actions">
                         <button className={`idea-action-btn ${copiedIndex === i ? 'copied' : ''}`} onClick={() => copyIdea(idea, i)}>
                           {copiedIndex === i ? '✓ Copied' : '📋 Copy'}
@@ -639,7 +576,6 @@ Keep each item to one short sentence. Exactly 3 steps, 2 risks, 2 resources.`,
                         </button>
                       </div>
 
-                      {/* Drill-down panel */}
                       {expandedDrill === i && drillData[i] && (
                         <div className="drill-panel">
                           <div className="drill-section">
@@ -669,7 +605,6 @@ Keep each item to one short sentence. Exactly 3 steps, 2 risks, 2 resources.`,
         </>
       )}
 
-      {/* ── BOARD TAB ── */}
       {tab === 'board' && (
         <div className="board-section">
           <div className="board-header">
@@ -713,11 +648,7 @@ Keep each item to one short sentence. Exactly 3 steps, 2 risks, 2 resources.`,
                     </div>
                   </div>
                   <div className="board-right">
-                    <button
-                      className={`vote-btn ${hasVoted ? 'voted' : ''}`}
-                      onClick={() => toggleVote(post.id)}
-                      disabled={votingId === post.id}
-                    >
+                    <button className={`vote-btn ${hasVoted ? 'voted' : ''}`} onClick={() => toggleVote(post.id)} disabled={votingId === post.id}>
                       <span className="vote-icon">▲</span>
                       <span className="vote-count">{voteCount}</span>
                     </button>
@@ -739,7 +670,6 @@ Keep each item to one short sentence. Exactly 3 steps, 2 risks, 2 resources.`,
         </div>
       )}
 
-      {/* ── HISTORY TAB ── */}
       {tab === 'history' && (
         <div className="history-section">
           {historyLoading && <div className="loading-state"><div className="spinner" /><p>Loading history...</p></div>}
