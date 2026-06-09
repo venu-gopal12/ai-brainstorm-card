@@ -237,11 +237,7 @@ function App() {
         setJustPosted(false);
         return;
       }
-      // Only load if board is empty
-      if (board.length === 0) {
-        setBoardLoading(false);
-        setTimeout(() => loadBoard(), 800);
-      }
+      setTimeout(() => loadBoard(), 800);
     }
   }, [tab, sdk]);
 
@@ -317,11 +313,14 @@ function App() {
           try { posts.push(JSON.parse(result.value)); } catch { }
         }
       });
-      const [sortedPosts] = await Promise.all([
-        Promise.resolve(posts.sort((a, b) => b.postedAt - a.postedAt)),
-        loadVotes()
-      ]);
-      setBoard(posts);
+      posts.sort((a, b) => b.postedAt - a.postedAt);
+      // Merge: keep optimistic posts that aren't in server results yet
+      setBoard(prev => {
+        const serverIds = new Set(posts.map(p => p.id));
+        const optimisticOnly = prev.filter(p => !serverIds.has(p.id));
+        return [...optimisticOnly, ...posts].sort((a, b) => b.postedAt - a.postedAt);
+      });
+      await loadVotes();
     } catch (err) {
       console.error('Failed to load board', err);
     } finally {
