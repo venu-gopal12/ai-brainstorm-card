@@ -27,6 +27,63 @@
   color: #555;
 }
 
+[data-theme="light"] .topic-input {
+  background: #ffffff;
+  border-color: #cccccc;
+  color: #0f0f0f;
+}
+
+[data-theme="light"] .topic-input::placeholder {
+  color: #999;
+}
+
+[data-theme="light"] .sort-select {
+  background: #ffffff;
+  border-color: #cccccc;
+  color: #333;
+}
+
+[data-theme="light"] .idea-action-btn {
+  background: #eeeeee;
+  border-color: #cccccc;
+  color: #333;
+}
+
+[data-theme="light"] .vote-btn {
+  background: #eeeeee;
+  border-color: #cccccc;
+}
+
+[data-theme="light"] .vote-count,
+[data-theme="light"] .vote-icon {
+  color: #333;
+}
+
+[data-theme="light"] .board-delete-btn {
+  color: #888;
+}
+
+[data-theme="light"] .tab-btn {
+  color: #555;
+}
+
+[data-theme="light"] .drill-panel {
+  background: #f0f0f0;
+  border-color: #ddd;
+}
+
+[data-theme="light"] .drill-item {
+  color: #333;
+}
+
+[data-theme="light"] .history-idea-preview {
+  color: #555;
+}
+
+[data-theme="light"] .empty-state {
+  color: #888;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
