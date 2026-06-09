@@ -1,3 +1,32 @@
+[data-theme="light"] body,
+[data-theme="light"] .main {
+  background: #ffffff;
+  color: #0f0f0f;
+}
+[data-theme="light"] .idea-card,
+[data-theme="light"] .board-card,
+[data-theme="light"] .history-card,
+[data-theme="light"] .mode-btn,
+[data-theme="light"] .topic-input,
+[data-theme="light"] .tabs {
+  background: #f5f5f5;
+  border-color: #e0e0e0;
+}
+[data-theme="light"] .idea-title,
+[data-theme="light"] .board-idea-title,
+[data-theme="light"] .history-topic,
+[data-theme="light"] .author-name,
+[data-theme="light"] .app-title {
+  color: #0f0f0f;
+}
+[data-theme="light"] .idea-desc,
+[data-theme="light"] .board-idea-desc,
+[data-theme="light"] .app-subtitle,
+[data-theme="light"] .board-meta,
+[data-theme="light"] .history-date {
+  color: #555;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;

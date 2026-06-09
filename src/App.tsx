@@ -211,7 +211,12 @@ function App() {
       onInit: (data: CardInitData) => {
         const { user, ui } = data;
         user && setUser(user);
-        if (ui?.theme) document.documentElement.setAttribute('data-theme', ui.theme);
+        if (ui?.theme) {
+          document.documentElement.setAttribute('data-theme', ui.theme);
+          // Apply theme directly to body background
+          document.body.style.background = ui.theme === 'light' ? '#ffffff' : '#0f0f0f';
+          document.body.style.color = ui.theme === 'light' ? '#0f0f0f' : '#f0f0f0';
+        }
       },
       onInitError: (data: any) => setInitError(data),
       onError: (data: { message: string; error_code: string | number }) => console.error('Error', data.message),
@@ -232,8 +237,11 @@ function App() {
         setJustPosted(false);
         return;
       }
-      setBoardLoading(false);
-      setTimeout(() => loadBoard(), 800);
+      // Only load if board is empty
+      if (board.length === 0) {
+        setBoardLoading(false);
+        setTimeout(() => loadBoard(), 800);
+      }
     }
   }, [tab, sdk]);
 
@@ -309,9 +317,11 @@ function App() {
           try { posts.push(JSON.parse(result.value)); } catch { }
         }
       });
-      posts.sort((a, b) => b.postedAt - a.postedAt);
+      const [sortedPosts] = await Promise.all([
+        Promise.resolve(posts.sort((a, b) => b.postedAt - a.postedAt)),
+        loadVotes()
+      ]);
       setBoard(posts);
-      await loadVotes();
     } catch (err) {
       console.error('Failed to load board', err);
     } finally {
